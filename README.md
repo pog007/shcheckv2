@@ -4,7 +4,7 @@
     <a href="https://pypi.org/project/shcheck/"><img alt="PyPI" src="https://img.shields.io/pypi/v/shcheck"></a>
     <a href="https://pypi.org/project/shcheck/"><img alt="Pypi" src="https://img.shields.io/pypi/dm/shcheck"></a>
     <a href="#"><img alt="Updated" src="https://img.shields.io/github/last-commit/santoru/shcheck?label=updated"></a>
-    <img src="screenshot.png" alt="Output on Facebook" />
+    <img src="2026-05-03_18-00.png" alt="Output on paulo.seg.br" />
 </p>
 
 ## Check security headers on a target website
