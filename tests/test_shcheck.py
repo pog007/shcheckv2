@@ -35,6 +35,7 @@ def make_options(**kwargs):
         usemethod='HEAD',
         proxy=None,
         no_follow=False,
+        check_cookies=False,
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -413,3 +414,168 @@ def test_bug2_no_response_error_visible_in_json_mode():
                side_effect=http.client.UnknownProtocol('HTTP/2')):
         shcheck.main()
     assert "Couldn't read a response from server." in captured_stderr.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Cookie security check tests
+# ---------------------------------------------------------------------------
+
+def test_parse_cookies_single_cookie():
+    headers = ['sessionid=abc123; Secure; HttpOnly; Path=/']
+    cookies = shcheck.parse_cookies(headers)
+    assert len(cookies) == 1
+    assert cookies[0]['name'] == 'sessionid'
+    assert cookies[0]['value'] == 'abc123'
+    assert cookies[0]['Secure'] is True
+    assert cookies[0]['HttpOnly'] is True
+    assert cookies[0]['Path'] == '/'
+
+
+def test_parse_cookies_multiple_cookies():
+    headers = [
+        'sessionid=abc123; Secure; HttpOnly; Path=/',
+        'csrftoken=xyz789; Secure; SameSite=Strict',
+    ]
+    cookies = shcheck.parse_cookies(headers)
+    assert len(cookies) == 2
+    assert cookies[0]['name'] == 'sessionid'
+    assert cookies[1]['name'] == 'csrftoken'
+
+
+def test_parse_cookies_no_attributes():
+    headers = ['insecure_cookie=value']
+    cookies = shcheck.parse_cookies(headers)
+    assert len(cookies) == 1
+    assert cookies[0]['Secure'] is False
+    assert cookies[0]['HttpOnly'] is False
+    assert cookies[0]['SameSite'] is None
+
+
+def test_parse_cookies_secure_false_on_http():
+    headers = ['sessionid=abc123; Secure']
+    cookies = shcheck.parse_cookies(headers)
+    assert cookies[0]['Secure'] is True
+
+
+def test_check_cookie_security_https_missing_secure():
+    cookies = [{'name': 'session', 'value': 'val', 'Secure': False,
+                'HttpOnly': True, 'SameSite': 'Lax', 'Domain': None}]
+    results, issues = shcheck.check_cookie_security(cookies, 'https://example.com', True)
+    assert 'missing Secure' in results['session']['issues']
+    assert issues == 1
+
+
+def test_check_cookie_security_https_all_secure():
+    cookies = [{'name': 'session', 'value': 'val', 'Secure': True,
+                'HttpOnly': True, 'SameSite': 'Lax', 'Domain': None}]
+    results, issues = shcheck.check_cookie_security(cookies, 'https://example.com', True)
+    assert results['session']['issues'] == []
+    assert issues == 0
+
+
+def test_check_cookie_security_http_no_secure_required():
+    cookies = [{'name': 'session', 'value': 'val', 'Secure': False,
+                'HttpOnly': False, 'SameSite': None, 'Domain': None}]
+    results, issues = shcheck.check_cookie_security(cookies, 'http://example.com', False)
+    assert 'missing HttpOnly' in results['session']['issues']
+    assert 'missing SameSite' in results['session']['issues']
+
+
+def test_check_cookie_security_missing_httponly():
+    cookies = [{'name': 'session', 'value': 'val', 'Secure': True,
+                'HttpOnly': False, 'SameSite': 'Lax', 'Domain': None}]
+    results, issues = shcheck.check_cookie_security(cookies, 'https://example.com', True)
+    assert 'missing HttpOnly' in results['session']['issues']
+    assert issues == 1
+
+
+def test_check_cookie_security_missing_samesite():
+    cookies = [{'name': 'session', 'value': 'val', 'Secure': True,
+                'HttpOnly': True, 'SameSite': None, 'Domain': None}]
+    results, issues = shcheck.check_cookie_security(cookies, 'https://example.com', True)
+    assert 'missing SameSite' in results['session']['issues']
+    assert issues == 1
+
+
+def test_check_cookie_security_broad_domain():
+    cookies = [{'name': 'session', 'value': 'val', 'Secure': True,
+                'HttpOnly': True, 'SameSite': 'Lax', 'Domain': '.example.com'}]
+    results, issues = shcheck.check_cookie_security(cookies, 'https://example.com', True)
+    assert 'broad domain' in results['session']['issues'][0]
+    assert issues == 1
+
+
+def test_check_cookie_security_narrow_domain():
+    cookies = [{'name': 'session', 'value': 'val', 'Secure': True,
+                'HttpOnly': True, 'SameSite': 'Lax', 'Domain': 'example.com'}]
+    results, issues = shcheck.check_cookie_security(cookies, 'https://example.com', True)
+    assert results['session']['issues'] == []
+    assert issues == 0
+
+
+def test_json_output_with_cookies():
+    headers = [
+        ('X-Frame-Options', 'DENY'),
+        ('Set-Cookie', 'sessionid=abc123; Secure; HttpOnly; Path=/'),
+    ]
+    data = _run_json(['-C'], headers, HTTPS_URL)
+    assert HTTPS_URL in data
+    assert 'cookies' in data[HTTPS_URL]
+    assert 'cookie_issues_count' in data[HTTPS_URL]
+    assert 'sessionid' in data[HTTPS_URL]['cookies']
+    assert data[HTTPS_URL]['cookies']['sessionid']['secure'] is True
+    assert data[HTTPS_URL]['cookies']['sessionid']['httponly'] is True
+
+
+def test_json_output_multiple_cookies():
+    headers = [
+        ('Set-Cookie', 'sessionid=abc123; Secure; HttpOnly'),
+        ('Set-Cookie', 'csrftoken=xyz789; Secure; SameSite=Strict'),
+    ]
+    data = _run_json(['-C'], headers, HTTPS_URL)
+    cookies = data[HTTPS_URL]['cookies']
+    assert 'sessionid' in cookies
+    assert 'csrftoken' in cookies
+    assert cookies['sessionid']['httponly'] is True
+    assert cookies['csrftoken']['samesite'] == 'Strict'
+
+
+def test_json_no_cookie_check_without_flag():
+    headers = [('Set-Cookie', 'sessionid=abc123; Secure; HttpOnly'),]
+    data = _run_json([], headers, HTTPS_URL)
+    assert 'cookies' not in data[HTTPS_URL]
+
+
+def test_cookie_check_no_cookies():
+    headers = [('X-Frame-Options', 'DENY'),]
+    data = _run_json(['-C', '-j'], headers, HTTPS_URL)
+    assert 'cookies' in data[HTTPS_URL]
+    assert data[HTTPS_URL]['cookies'] == {}
+
+
+def test_cookie_issues_count():
+    headers = [('Set-Cookie', 'insecure=val'),]
+    data = _run_json(['-C', '-j'], headers, HTTPS_URL)
+    assert data[HTTPS_URL]['cookie_issues_count'] >= 3
+
+
+def test_cookie_check_integration_text_output():
+    headers = [('Set-Cookie', 'sessionid=abc123; Secure; HttpOnly; SameSite=Lax'),]
+    output = _run_normal(['-C'], headers, HTTPS_URL)
+    assert 'cookies' in output or 'Analyzing cookies' in output
+
+
+def test_cookie_check_per_target_isolation():
+    first_url = 'https://first.example.com'
+    second_url = 'https://second.example.com'
+    data = _run_json_multi(
+        ['-C'],
+        [
+            (first_url, [('Set-Cookie', 'session=abc; Secure; HttpOnly')]),
+            (second_url, [('Set-Cookie', 'session=xyz; Secure')]),
+        ]
+    )
+    assert first_url in data
+    assert second_url in data
+    assert data[first_url]['cookies']['session']['httponly'] is True
+    assert data[second_url]['cookies']['session']['httponly'] is False

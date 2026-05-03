@@ -90,6 +90,13 @@ cache_headers = {
     'ETag'
 }
 
+cookie_security_rules = {
+    'Secure': 'error',
+    'HttpOnly': 'warning',
+    'SameSite': 'warning',
+    'Domain_scope': 'warning'
+}
+
 options = None
 
 
@@ -195,6 +202,114 @@ def print_error(target, e):
         sys.stderr.write("{}\n".format(str(e)))
 
 
+def parse_cookies(set_cookie_headers):
+    '''
+    Parse Set-Cookie header strings into structured cookie data.
+    Returns a list of dicts with name, value, and attributes.
+    '''
+    cookies = []
+    for header in set_cookie_headers:
+        parts = [p.strip() for p in header.split(';')]
+        if not parts:
+            continue
+        # First part is name=value
+        name_value = parts[0]
+        if '=' not in name_value:
+            continue
+        name, value = name_value.split('=', 1)
+        name = name.strip()
+        value = value.strip()
+
+        cookie = {
+            'name': name,
+            'value': value,
+            'Secure': False,
+            'HttpOnly': False,
+            'SameSite': None,
+            'Domain': None,
+            'Path': None,
+            'Expires': None,
+            'Max-Age': None
+        }
+
+        for part in parts[1:]:
+            part_lower = part.lower()
+            if part_lower == 'secure':
+                cookie['Secure'] = True
+            elif part_lower == 'httponly':
+                cookie['HttpOnly'] = True
+            elif '=' in part:
+                key, val = part.split('=', 1)
+                key = key.strip()
+                val = val.strip()
+                if key.lower() == 'samesite':
+                    cookie['SameSite'] = val
+                elif key.lower() == 'domain':
+                    cookie['Domain'] = val
+                elif key.lower() == 'path':
+                    cookie['Path'] = val
+                elif key.lower() == 'expires':
+                    cookie['Expires'] = val
+                elif key.lower() == 'max-age':
+                    cookie['Max-Age'] = val
+
+        cookies.append(cookie)
+    return cookies
+
+
+def check_cookie_security(cookies, target, is_https):
+    '''
+    Check cookie security attributes against defined rules.
+    Returns (cookie_results, issues_count) tuple.
+    '''
+    cookie_results = {}
+    total_issues = 0
+
+    for cookie in cookies:
+        name = cookie['name']
+        issues = []
+
+        # Check Secure flag
+        if is_https and not cookie['Secure']:
+            issues.append('missing Secure')
+
+        # Check HttpOnly flag
+        if not cookie['HttpOnly']:
+            issues.append('missing HttpOnly')
+
+        # Check SameSite attribute
+        if not cookie['SameSite']:
+            issues.append('missing SameSite')
+
+        # Check domain scope (broad domain)
+        if cookie['Domain'] and cookie['Domain'].startswith('.'):
+            issues.append('broad domain ({})'.format(cookie['Domain']))
+
+        cookie_results[name] = {
+            'secure': cookie['Secure'],
+            'httponly': cookie['HttpOnly'],
+            'samesite': cookie['SameSite'],
+            'domain': cookie['Domain'],
+            'issues': issues
+        }
+        total_issues += len(issues)
+
+    return cookie_results, total_issues
+
+
+def report_cookies(json_out, safe, unsafe):
+    '''
+    Report cookie security findings.
+    '''
+    log("-------------------------------------------------------")
+    log("[!] Analyzing cookies")
+    log("[+] {} secure cookie attribute(s) present".format(
+        colorize(str(safe), 'ok')))
+    log("[-] {} insecure cookie attribute(s) missing".format(
+        colorize(str(unsafe), 'error')))
+    log("")
+
+
 def check_target(target, req_headers=None, usemethod='HEAD'):
     '''
     Normalize the target URL and perform an HTTP request, returning the
@@ -298,6 +413,9 @@ def parse_options():
     parser.add_argument("--no-follow", dest="no_follow", default=False,
                         help="Do not follow HTTP redirects (return 3xx response)",
                         action="store_true")
+    parser.add_argument("-C", "--check-cookies", dest="check_cookies",
+                        default=False, help="Check cookie security attributes",
+                        action="store_true")
 
     args = parser.parse_args()
     if args.useget:
@@ -322,6 +440,7 @@ def main():
     information = options.information
     cache_control = options.cache_control
     show_deprecated = options.show_deprecated
+    check_cookies = options.check_cookies
     hfile = options.hfile
     json_output = options.json_output
 
@@ -463,6 +582,40 @@ header {} is present! (Value: {})".format(
                             headers.get(lcacheh)))
             if not c_chk:
                 log("[*] No caching headers detected")
+
+        # Cookie security check
+        if options.check_cookies:
+            set_cookie_headers = [v for k, v in response.getheaders()
+                                  if k.lower() == 'set-cookie']
+            cookies = parse_cookies(set_cookie_headers)
+            is_https = rUrl.startswith('https://')
+            cookie_results, cookie_issues = check_cookie_security(
+                cookies, rUrl, is_https)
+            json_results["cookies"] = cookie_results
+            json_results["cookie_issues_count"] = cookie_issues
+
+            if cookies:
+                log("")
+                log("[*] Analyzing cookies for {}".format(
+                    colorize(rUrl, 'info')))
+                cookie_safe = 0
+                cookie_unsafe = 0
+                for name, data in cookie_results.items():
+                    for issue in data['issues']:
+                        log("[!] Cookie '{}': {}".format(
+                            colorize(name, 'warning'),
+                            colorize(issue, 'error')))
+                        cookie_unsafe += 1
+                    # Count present security attributes
+                    if data['secure']:
+                        cookie_safe += 1
+                    if data['httponly']:
+                        cookie_safe += 1
+                    if data['samesite']:
+                        cookie_safe += 1
+                report_cookies(json_out, cookie_safe, cookie_unsafe)
+            else:
+                log("[*] No cookies set by server")
 
         report(rUrl, safe, unsafe)
         json_out.update(json_headers)
