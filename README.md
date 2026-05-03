@@ -17,6 +17,14 @@ It just check headers and print a report about which are enabled and which not
 
 I think there is a lot to improve, and I will be grateful if somebody wants to help
 
+## Features
+
+- Check common HTTP security headers
+- Identify missing or misconfigured headers
+- JSON output support
+- Custom headers, cookies, and proxy support
+- **NEW:** Cookie security analysis (flags like `Secure`, `HttpOnly`, `SameSite`)
+
 ## How to run:
 
 ### Pypi
@@ -47,23 +55,27 @@ If you want to run shcheck as a standalone script, just grab the `shcheck.py` sc
 ```
 Usage: ./shcheck.py [options] <target>
 
-Options:
+options:
   -h, --help            show this help message and exit
-  -p PORT, --port=PORT  Set a custom port to connect to
-  -c COOKIE_STRING, --cookie=COOKIE_STRING
+  -p, --port PORT       Set a custom port to connect to
+  -c, --cookie COOKIE_STRING
                         Set cookies for the request
-  -a HEADER_STRING, --add-header=HEADER_STRING
+  -a, --add-header HEADER_STRING
                         Add headers for the request e.g. 'Header: value'
   -d, --disable-ssl-check
                         Disable SSL/TLS certificate validation
   -g, --use-get-method  Use GET method instead HEAD method
+  -m, --use-method {HEAD,GET,POST,PUT,DELETE,TRACE}
+                        Use a specified method
   -j, --json-output     Print the output in JSON format
   -i, --information     Display information headers
   -x, --caching         Display caching headers
   -k, --deprecated      Display deprecated headers
-  --no-follow           Do not follow HTTP redirects
-  --proxy=PROXY_URL     Set a proxy (Ex: http://127.0.0.1:8080)
-  --hfile=PATH_TO_FILE  Load a list of hosts from a flat file
-  --colours=COLOURS     Set up a colour profile [dark/light/none]
-  --colors=COLOURS      Alias for colours for US English
+  --proxy PROXY_URL     Set a proxy (Ex: http://127.0.0.1:8080)
+  --hfile PATH_TO_FILE  Load a list of hosts from a flat file
+  --colours, --colors COLOURS
+                        Set up a colour profile [dark/light/none]
+  --no-follow           Do not follow HTTP redirects (return 3xx response)
+  -C, --check-cookies   Check cookie security attributes
+   
 ```
