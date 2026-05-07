@@ -1,4 +1,4 @@
-# shcheck - Security Header Check
+# shcheck - Security Header and Cookies Check
 
 <p align="center">
     <a href="https://pypi.org/project/shcheck/"><img alt="PyPI" src="https://img.shields.io/pypi/v/shcheck"></a>
