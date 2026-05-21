@@ -601,18 +601,26 @@ header {} is present! (Value: {})".format(
                 cookie_safe = 0
                 cookie_unsafe = 0
                 for name, data in cookie_results.items():
+                    # Log present security attributes
+                    if data['secure']:
+                        cookie_safe += 1
+                        log("[+] Cookie '{}': Secure flag is set".format(
+                            colorize(name, 'ok')))
+                    if data['httponly']:
+                        cookie_safe += 1
+                        log("[+] Cookie '{}': HttpOnly flag is set".format(
+                            colorize(name, 'ok')))
+                    if data['samesite']:
+                        cookie_safe += 1
+                        log("[+] Cookie '{}': SameSite is set ({})".format(
+                            colorize(name, 'ok'),
+                            data['samesite']))
+                    # Log missing/insecure attributes
                     for issue in data['issues']:
                         log("[!] Cookie '{}': {}".format(
                             colorize(name, 'warning'),
                             colorize(issue, 'error')))
                         cookie_unsafe += 1
-                    # Count present security attributes
-                    if data['secure']:
-                        cookie_safe += 1
-                    if data['httponly']:
-                        cookie_safe += 1
-                    if data['samesite']:
-                        cookie_safe += 1
                 report_cookies(json_out, cookie_safe, cookie_unsafe)
             else:
                 log("[*] No cookies set by server")
