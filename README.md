@@ -44,7 +44,7 @@ Then simply run your docker container using something like this where you specif
 
 ### From source
 ```bash
-git clone https://github.com/santoru/shcheck && cd shcheck
+git clone https://github.com/pog007/shcheckv2 && cd shcheckv2
 ./shcheck.py https://insecurity.blog
 ```
 

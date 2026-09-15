@@ -35,7 +35,7 @@ if __name__ == "__main__":
         description="A basic tool to check security headers of a website",
         long_description=long_description,
         long_description_content_type="text/markdown",
-        url="https://github.com/santoru/shcheck",
+        url="https://github.com/pog007/shcheckv2",
         scripts=[
             "shcheck/shcheck.py",
         ],
